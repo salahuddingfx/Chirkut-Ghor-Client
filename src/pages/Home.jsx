@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import axios from 'axios';
-import { ArrowRight, Sparkles, Star, Users, Award, Heart, ShoppingBag, Shirt, Gift, Shield, Truck, Clock, Package } from 'lucide-react';
+import { ArrowRight, Sparkles, Star, Users, Award, Heart, ShoppingBag, Shirt, Gift, Shield, Truck, Clock, Package, Zap } from 'lucide-react';
 import ProductCard from '../components/ProductCard';
 import { ProductCardSkeleton } from '../components/Skeletons';
 import BannerSlider from '../components/BannerSlider';
@@ -15,6 +15,8 @@ const Home = () => {
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
   const [hotOffer, setHotOffer] = useState(null);
+  const [flashSale, setFlashSale] = useState(null);
+  const [flashTimeLeft, setFlashTimeLeft] = useState({ hours: 0, minutes: 0, seconds: 0 });
   const { socket } = useSocket() || {};
 
   const categoryColorMap = {
@@ -43,16 +45,42 @@ const Home = () => {
     fetchFeaturedProducts();
     fetchCategories();
     fetchHotOffer();
+    fetchFlashSale();
   }, []);
 
   useEffect(() => {
     if (!socket) return;
     const handleUpdate = (data) => setHotOffer(data);
+    const handleFlashSale = (data) => setFlashSale(data);
     socket.on('hot_offer:updated', handleUpdate);
+    socket.on('flash_sale:updated', handleFlashSale);
+    socket.on('flash_sale:created', handleFlashSale);
     return () => {
       socket.off('hot_offer:updated', handleUpdate);
+      socket.off('flash_sale:updated', handleFlashSale);
+      socket.off('flash_sale:created', handleFlashSale);
     };
   }, [socket]);
+
+  useEffect(() => {
+    if (!flashSale?.endDate) return;
+    const timer = setInterval(() => {
+      const now = new Date().getTime();
+      const end = new Date(flashSale.endDate).getTime();
+      const diff = end - now;
+      if (diff <= 0) {
+        setFlashTimeLeft({ hours: 0, minutes: 0, seconds: 0 });
+        clearInterval(timer);
+        return;
+      }
+      setFlashTimeLeft({
+        hours: Math.floor(diff / (1000 * 60 * 60)),
+        minutes: Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60)),
+        seconds: Math.floor((diff % (1000 * 60)) / 1000),
+      });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [flashSale?.endDate]);
 
   const fetchHotOffer = async () => {
     try {
@@ -62,6 +90,17 @@ const Home = () => {
       }
     } catch (error) {
       console.error('Error fetching hot offer:', error);
+    }
+  };
+
+  const fetchFlashSale = async () => {
+    try {
+      const response = await axios.get('/api/promotions/flash-sale');
+      if (response.data) {
+        setFlashSale(response.data);
+      }
+    } catch (error) {
+      console.error('Error fetching flash sale:', error);
     }
   };
 
@@ -456,6 +495,72 @@ const Home = () => {
           </div>
         </div>
       </section>
+
+      {/* Flash Sale Section */}
+      {flashSale?.isActive && flashSale.products?.length > 0 && (
+        <section className="py-12 sm:py-16 bg-white">
+          <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-10">
+              <div>
+                <div className="flex items-center gap-2 mb-2">
+                  <Zap className="h-5 w-5 text-maroon" />
+                  <span className="text-xs font-semibold text-maroon uppercase tracking-wider">
+                    {flashSale.badgeText || 'Flash Sale'}
+                  </span>
+                </div>
+                <h2 className="text-2xl sm:text-3xl font-bold text-gray-800">
+                  {flashSale.title || 'Limited Time Deals'}
+                </h2>
+                {flashSale.subtitle && (
+                  <p className="text-sm text-gray-600 mt-1">{flashSale.subtitle}</p>
+                )}
+              </div>
+
+              {/* Countdown Timer */}
+              <div className="flex items-center gap-3">
+                <Clock className="h-5 w-5 text-maroon" />
+                <div className="flex items-center gap-1.5">
+                  {[
+                    { val: flashTimeLeft.hours, label: 'H' },
+                    { val: flashTimeLeft.minutes, label: 'M' },
+                    { val: flashTimeLeft.seconds, label: 'S' },
+                  ].map(({ val, label }) => (
+                    <div key={label} className="flex items-center">
+                      <span className="bg-maroon text-white text-sm font-bold px-2.5 py-1.5 rounded-lg min-w-[36px] text-center">
+                        {String(val).padStart(2, '0')}
+                      </span>
+                      <span className="text-xs text-gray-400 mx-0.5">{label}</span>
+                    </div>
+                  ))}
+                </div>
+                {flashSale.discountPercent && (
+                  <span className="bg-red-100 text-red-600 text-xs font-bold px-2.5 py-1 rounded-full">
+                    {flashSale.discountPercent}% OFF
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              {(Array.isArray(flashSale.products) ? flashSale.products.slice(0, 8) : []).map((product) => (
+                <div key={product._id}>
+                  <ProductCard product={product} />
+                </div>
+              ))}
+            </div>
+
+            <div className="text-center mt-8">
+              <Link
+                to="/shop"
+                className="inline-flex items-center gap-2 px-6 py-3 bg-maroon text-white rounded-xl text-sm font-semibold"
+              >
+                View All Deals
+                <ArrowRight className="h-4 w-4" />
+              </Link>
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* Newsletter */}
       <Newsletter />
